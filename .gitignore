@@ -61,7 +61,7 @@ CTestTestfile.cmake
 bazel-*
 
 # bazel module lock
-# OPENSOURCE-CLEANUP INSERT MODULE.bazel.lock
+MODULE.bazel.lock
 resolved.bzl
 
 #python
@@ -69,6 +69,3 @@ resolved.bzl
 *egg-info
 build/
 dist/
-
-# OPENSOURCE-CLEANUP REMOVE 2
-.bcr
