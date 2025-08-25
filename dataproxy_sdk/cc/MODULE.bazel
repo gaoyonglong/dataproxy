@@ -14,8 +14,8 @@
 
 module(
     name = "dataproxy_sdk_cc",
-    version = "0.5.0b0",
     compatibility_level = 1,
+    version = "0.5.0b0",
 )
 
 bazel_dep(name = "apple_support", version = "1.17.1")
