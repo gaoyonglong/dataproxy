@@ -14,16 +14,36 @@
 
 #include "data_proxy_conn.h"
 
+#include <future>
 #include <sstream>
 
+#include "arrow/flight/api.h"
+#include "spdlog/spdlog.h"
+
 #include "dataproxy_sdk/exception.h"
+#include "dataproxy_sdk/utils.h"
 
 namespace dataproxy_sdk {
 
 class SimpleDoPutResult : public DoPutResultWrapper {
  public:
   void WriteRecordBatch(const arrow::RecordBatch& batch) {
-    CHECK_ARROW_OR_THROW(stream_writer_->WriteRecordBatch(batch));
+    // Check batch size and split if necessary
+    int64_t batch_size = dataproxy_sdk::GetBatchSize(batch);
+    const int64_t max_batch_size = 64 * 1024 * 1024;  // 64MB limit
+
+    if (batch_size > max_batch_size) {
+      SPDLOG_INFO(
+          "Large batch detected: {} bytes, splitting into smaller chunks",
+          batch_size);
+      auto chunks = dataproxy_sdk::SplitBatch(batch, max_batch_size);
+
+      for (const auto& chunk : chunks) {
+        CHECK_ARROW_OR_THROW(stream_writer_->WriteRecordBatch(*chunk));
+      }
+    } else {
+      CHECK_ARROW_OR_THROW(stream_writer_->WriteRecordBatch(batch));
+    }
   }
 
   void Close() { CHECK_ARROW_OR_THROW(stream_writer_->Close()); }
@@ -156,21 +176,29 @@ class DataProxyConn::Impl {
   std::shared_ptr<FlightStreamReaderWrapper> DoGet(
       const arrow::flight::FlightDescriptor& descriptor) {
     GetFlightInfoResult result = GetFlightInfo(descriptor);
-
+    DATAPROXY_ENFORCE(result.datas.size());
     std::vector<std::unique_ptr<arrow::flight::FlightStreamReader>>
-        stream_readers;
-    for (auto& data : result.datas) {
-      std::unique_ptr<arrow::flight::FlightStreamReader> stream_reader;
-      if (data.dp_client) {
-        ASSIGN_ARROW_OR_THROW(stream_reader,
-                              data.dp_client->DoGet(data.dp_ticket));
-      } else {
-        ASSIGN_ARROW_OR_THROW(stream_reader, dm_client_->DoGet(data.dp_ticket));
-      }
-      stream_readers.emplace_back(std::move(stream_reader));
+        stream_readers(result.datas.size());
+    std::vector<std::future<void>> futures;
+    for (size_t i = 0; i < result.datas.size(); ++i) {
+      auto& data = result.datas[i];
+      futures.emplace_back(std::async(std::launch::async, [&, i] {
+        std::unique_ptr<arrow::flight::FlightStreamReader> stream_reader;
+        if (data.dp_client) {
+          ASSIGN_ARROW_OR_THROW(stream_reader,
+                                data.dp_client->DoGet(data.dp_ticket));
+        } else {
+          ASSIGN_ARROW_OR_THROW(stream_reader,
+                                dm_client_->DoGet(data.dp_ticket));
+        }
+        stream_readers[i] = std::move(stream_reader);
+      }));
+    }
+    // Wait for all futures to complete
+    for (auto& future : futures) {
+      future.get();
     }
 
-    DATAPROXY_ENFORCE(stream_readers.size());
     // Check that all schemas are the same
     ASSIGN_DP_OR_THROW(auto first_schema, stream_readers[0]->GetSchema());
     for (size_t i = 1; i < stream_readers.size(); ++i) {

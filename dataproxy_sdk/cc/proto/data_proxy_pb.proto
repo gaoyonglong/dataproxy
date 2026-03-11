@@ -70,6 +70,10 @@ message DownloadInfo {
   // specific the partition column and value, such as "dmdt=20240520"
   string partition_spec = 2;
 
+  // CSV null value representation options
+  // If set, null values in string columns will be written as this string instead of empty string
+  string csv_null_value = 3;
+
   oneof file_info {
     ORCFileInfo orc_info = 10;
   }
@@ -109,4 +113,8 @@ message UploadInfo {
   // SecretFlow engine, another vendor's engine, or manually registered. it's
   // could be manual, secretflow or other vendor string.
   string vendor = 8;
+  
+  // CSV null value handling option
+  // Character vector of recognized spellings for null values
+  repeated string csv_null_values = 9;
 }

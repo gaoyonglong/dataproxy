@@ -50,7 +50,12 @@ public class Record {
     }
 
     public Object get(String columnName) {
-        return values.get(columnNames.get(columnName));
+        Integer i = columnNames.get(columnName);
+        if (i == null) {
+            log.info("columnName: {} not found", columnName);
+            return null;
+        }
+        return values.get(i);
     }
 
     public void set(String columnName, Object value) {

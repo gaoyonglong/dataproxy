@@ -141,32 +141,61 @@ public class DamengUtilTest {
     @Test
     public void testBuildQuerySql_SimpleQuery() {
         List<String> columns = Arrays.asList("col1", "col2", "col3");
-        String sql = DamengUtil.buildQuerySql("test_table", columns, null);
-        
-        assertEquals("SELECT col1, col2, col3 FROM test_table", sql);
+        DatabaseRecordWriter.SqlWithParams sqlWithParams = DamengUtil.buildQuerySql("test_table", columns, null);
+
+        assertEquals("SELECT col1, col2, col3 FROM test_table", sqlWithParams.sql);
+        assertTrue(sqlWithParams.params.isEmpty());
     }
 
     @Test
     public void testBuildQuerySql_WithPartition() {
         List<String> columns = Arrays.asList("col1", "col2");
         String partition = "dt=20240101";
-        String sql = DamengUtil.buildQuerySql("test_table", columns, partition);
-        
-        assertTrue(sql.contains("SELECT col1, col2 FROM test_table"));
-        assertTrue(sql.contains("WHERE"));
-        assertTrue(sql.contains("dt='20240101'"));
+        DatabaseRecordWriter.SqlWithParams sqlWithParams = DamengUtil.buildQuerySql("test_table", columns, partition);
+
+        assertTrue(sqlWithParams.sql.contains("SELECT col1, col2 FROM test_table"));
+        assertTrue(sqlWithParams.sql.contains("WHERE"));
+        assertTrue(sqlWithParams.sql.contains("dt = ?"));
+        assertEquals(1, sqlWithParams.params.size());
+        assertEquals("20240101", sqlWithParams.params.get(0));
     }
 
     @Test
     public void testBuildQuerySql_WithMultiplePartitions() {
         List<String> columns = Arrays.asList("col1");
         String partition = "dt=20240101,region=us";
-        String sql = DamengUtil.buildQuerySql("test_table", columns, partition);
-        
-        assertTrue(sql.contains("WHERE"));
-        assertTrue(sql.contains("dt='20240101'"));
-        assertTrue(sql.contains("region='us'"));
-        assertTrue(sql.contains("AND"));
+        DatabaseRecordWriter.SqlWithParams sqlWithParams = DamengUtil.buildQuerySql("test_table", columns, partition);
+
+        assertTrue(sqlWithParams.sql.contains("WHERE"));
+        assertTrue(sqlWithParams.sql.contains("dt = ?"));
+        assertTrue(sqlWithParams.sql.contains("region = ?"));
+        assertTrue(sqlWithParams.sql.contains("AND"));
+        assertEquals(2, sqlWithParams.params.size());
+        assertEquals("20240101", sqlWithParams.params.get(0));
+        assertEquals("us", sqlWithParams.params.get(1));
+    }
+
+    @Test
+    public void testBuildQuerySql_PartitionValueWithSpecialChars() {
+        List<String> columns = Arrays.asList("col1");
+        String partition = "dt=2024-01-01";
+        DatabaseRecordWriter.SqlWithParams sqlWithParams = DamengUtil.buildQuerySql("test_table", columns, partition);
+
+        assertTrue(sqlWithParams.sql.contains("dt = ?"));
+        assertEquals(1, sqlWithParams.params.size());
+        assertEquals("2024-01-01", sqlWithParams.params.get(0));
+    }
+
+    @Test
+    public void testBuildQuerySql_PartitionValueWithSingleQuote() {
+        List<String> columns = Arrays.asList("col1");
+        String partition = "dt=test";
+        DatabaseRecordWriter.SqlWithParams sqlWithParams = DamengUtil.buildQuerySql("test_table", columns, partition);
+
+        // With parameterization, the value is passed directly, no need to escape
+        assertTrue(sqlWithParams.sql.contains("dt = ?"));
+        assertEquals(1, sqlWithParams.params.size());
+        assertEquals("test", sqlWithParams.params.get(0));
     }
 
     @Test
@@ -199,23 +228,6 @@ public class DamengUtilTest {
         assertThrows(DataproxyException.class, () -> {
             DamengUtil.buildQuerySql("test_table", columns, partition);
         });
-    }
-
-    @Test
-    public void testBuildQuerySql_PartitionValueWithSpecialChars() {
-        List<String> columns = Arrays.asList("col1");
-        String partition = "dt=2024-01-01";
-        String sql = DamengUtil.buildQuerySql("test_table", columns, partition);
-        assertTrue(sql.contains("dt='2024-01-01'"));
-    }
-
-    @Test
-    public void testBuildQuerySql_PartitionValueWithSingleQuote() {
-        List<String> columns = Arrays.asList("col1");
-        String partition = "dt=test'value";
-        String sql = DamengUtil.buildQuerySql("test_table", columns, partition);
-        // Should escape single quotes
-        assertTrue(sql.contains("dt='test''value'"));
     }
 
 

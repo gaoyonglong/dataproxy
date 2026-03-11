@@ -58,6 +58,10 @@ class DataProxyFile::Impl {
       options.compression_block_size = info.orc_info().compression_block_size();
       options.stripe_size = info.orc_info().stripe_size();
     }
+    // Set CSV null value representation option
+    if (!info.csv_null_value().empty()) {
+      options.csv_null_value = info.csv_null_value();
+    }
     return options;
   }
 
@@ -187,6 +191,10 @@ class DataProxyFile::Impl {
       options.column_types.emplace(column.name(), GetDataType(column.type()));
       options.include_columns.push_back(column.name());
     }
+    // Set CSV null value handling options
+    options.csv_strings_can_be_null = info.csv_strings_can_be_null();
+    options.csv_null_values.assign(info.csv_null_values().begin(),
+                                   info.csv_null_values().end());
     return options;
   }
 
@@ -204,12 +212,6 @@ class DataProxyFile::Impl {
 
     auto put_result = dp_conn_->DoPut(descriptor, file_read->Schema());
 
-    static const int64_t kMaxBatchSize = 64 * 1024 * 1024;
-    int64_t slice_size = 0;
-    int64_t slice_len = 0;
-    int64_t slice_offset = 0;
-    int64_t slice_left = 0;
-    int64_t batch_size = 0;
     // 5. 向写入流写入文件数据
     while (true) {
       std::shared_ptr<arrow::RecordBatch> batch;
@@ -217,21 +219,7 @@ class DataProxyFile::Impl {
       if (batch.get() == nullptr) {
         break;
       }
-      ASSIGN_DP_OR_THROW(batch_size, arrow::util::ReferencedBufferSize(*batch));
-      if (batch_size > kMaxBatchSize) {
-        slice_offset = 0;
-        slice_size = (batch_size + kMaxBatchSize - 1) / kMaxBatchSize;
-        slice_left = batch->num_rows();
-        slice_len = (slice_left + slice_size - 1) / slice_size;
-        while (slice_left > 0) {
-          put_result->WriteRecordBatch(
-              *(batch->Slice(slice_offset, std::min(slice_len, slice_left))));
-          slice_offset += slice_len;
-          slice_left -= slice_len;
-        }
-      } else {
-        put_result->WriteRecordBatch(*batch);
-      }
+      put_result->WriteRecordBatch(*batch);
     }
 
     put_result->Close();

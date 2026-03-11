@@ -15,7 +15,9 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
+#include "arrow/record_batch.h"
 #include "arrow/type_fwd.h"
 
 namespace dataproxy_sdk {
@@ -23,5 +25,10 @@ namespace dataproxy_sdk {
 std::string ReadFileContent(const std::string& file);
 
 std::shared_ptr<arrow::DataType> GetDataType(const std::string& type);
+
+int64_t GetBatchSize(const arrow::RecordBatch& batch);
+
+std::vector<std::shared_ptr<arrow::RecordBatch>> SplitBatch(
+    const arrow::RecordBatch& batch, int64_t max_chunk_size);
 
 }  // namespace dataproxy_sdk

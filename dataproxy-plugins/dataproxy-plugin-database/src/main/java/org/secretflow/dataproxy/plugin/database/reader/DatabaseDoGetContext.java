@@ -42,10 +42,10 @@ public class DatabaseDoGetContext {
 
     // DECIMAL type aliases
     private static final Set<String> DECIMAL_TYPE_NAMES = Set.of("DECIMAL", "NUMERIC", "NUMBER", "DEC");
-    
+
     // Time types that require precision information
     private static final Set<String> TIME_TYPE_NAMES = Set.of("DATETIME", "TIMESTAMP", "TIME");
-    
+
     // Default precision and scale for DECIMAL type
     private static final int DEFAULT_DECIMAL_PRECISION = 38;
     private static final int DEFAULT_DECIMAL_SCALE = 10;
@@ -100,13 +100,12 @@ public class DatabaseDoGetContext {
     public interface BuildQuerySqlFunc<T, U, V, R> {
         R apply(T t, U u, V v);
     }
-    private final BuildQuerySqlFunc<String, List<String>, String, String> buildQuerySqlFunc;
-
+    private final BuildQuerySqlFunc<String, List<String>, String, Object> buildQuerySqlFunc;
     private final Function<String, ArrowType> jdbcType2ArrowType;
     private final ReadWriteLock readWriteLock = new ReentrantReadWriteLock();
 
 
-    public DatabaseDoGetContext(DatabaseCommandConfig<?> config, Function<DatabaseConnectConfig, Connection> initDatabaseFunc, BuildQuerySqlFunc<String, List<String>, String, String> buildQuerySqlFunc, Function<String, ArrowType> jdbcType2ArrowType) {
+    public DatabaseDoGetContext(DatabaseCommandConfig<?> config, Function<DatabaseConnectConfig, Connection> initDatabaseFunc, BuildQuerySqlFunc<String, List<String>, String, Object> buildQuerySqlFunc, Function<String, ArrowType> jdbcType2ArrowType) {
         this.dbCommandConfig = config;
         this.initDatabaseFunc = initDatabaseFunc;
         this.buildQuerySqlFunc = buildQuerySqlFunc;
@@ -121,28 +120,37 @@ public class DatabaseDoGetContext {
     private void prepare() {
         DatabaseConnectConfig dbConnectConfig = dbCommandConfig.getDbConnectConfig();
 
-        String querySql;
+        Object querySqlOrParams;
         Connection localConn = null;
-        
+
         try {
             localConn = this.initDatabaseFunc.apply(dbConnectConfig);
             this.conn = localConn;
-            
+
             if (dbCommandConfig instanceof ScqlCommandJobConfig scqlReadJobConfig) {
-                querySql = scqlReadJobConfig.getCommandConfig();
+                // Convert legacy String SQL to SqlWithParams for unified PreparedStatement handling
+                Object commandConfig = scqlReadJobConfig.getCommandConfig();
+                if (commandConfig instanceof String sql) {
+                    querySqlOrParams = new org.secretflow.dataproxy.plugin.database.writer.DatabaseRecordWriter.SqlWithParams(
+                            sql, Collections.emptyList()
+                    );
+                } else {
+                    // Already converted to SqlWithParams (future-proof)
+                    querySqlOrParams = commandConfig;
+                }
             } else if (dbCommandConfig instanceof DatabaseTableQueryConfig dbTableQueryConfig) {
                 DatabaseTableConfig tableConfig = dbTableQueryConfig.getCommandConfig();
                 this.tableName = tableConfig.tableName();
-                querySql = this.buildQuerySqlFunc.apply(this.tableName, 
-                        tableConfig.columns().stream().map(Common.DataColumn::getName).toList(), 
+                querySqlOrParams = this.buildQuerySqlFunc.apply(this.tableName,
+                        tableConfig.columns().stream().map(Common.DataColumn::getName).toList(),
                         tableConfig.partition());
                 this.schema = dbCommandConfig.getResultSchema();
             } else {
-                throw DataproxyException.of(DataproxyErrorCode.PARAMS_UNRELIABLE, 
+                throw DataproxyException.of(DataproxyErrorCode.PARAMS_UNRELIABLE,
                         "Unsupported read parameter type: " + dbCommandConfig.getClass());
             }
-            
-            this.executeSqlTaskAndHandleResult(localConn, this.tableName, querySql);
+
+            this.executeSqlTaskAndHandleResult(localConn, this.tableName, querySqlOrParams);
         } catch (Exception e) {
             // Clean up created connection if prepare fails
             if (localConn != null) {
@@ -156,22 +164,37 @@ public class DatabaseDoGetContext {
         }
     }
 
-    private void executeSqlTaskAndHandleResult(Connection connection, String tableName, String querySql) {
-        log.debug("Executing SQL on table {}: {}", 
+    private void executeSqlTaskAndHandleResult(Connection connection, String tableName, Object querySqlOrParams) {
+        String querySql;
+        List<Object> queryParams;
+        ResultSet rs = null;
+
+        log.debug("Executing SQL on table {}: {}",
                 tableName != null ? tableName : "N/A",
-                querySql.length() > 200 ? querySql.substring(0, 200) + "..." : querySql);
+                querySqlOrParams.toString().length() > 200 ? querySqlOrParams.toString().substring(0, 200) + "..." : querySqlOrParams);
 
         Throwable error = null;
         readWriteLock.writeLock().lock();
         try {
             this.databaseMetaData = connection.getMetaData();
-            Statement stmt = connection.createStatement();
-            ResultSet rs = stmt.executeQuery(querySql);
-            
-            // Assign to instance variables after successful execution
-            this.queryStmt = stmt;
+
+            // Extract SQL and parameters from SqlWithParams (preparedStatement for security)
+            org.secretflow.dataproxy.plugin.database.writer.DatabaseRecordWriter.SqlWithParams sqlWithParams =
+                (org.secretflow.dataproxy.plugin.database.writer.DatabaseRecordWriter.SqlWithParams) querySqlOrParams;
+            querySql = sqlWithParams.sql;
+            queryParams = sqlWithParams.params;
+
+            PreparedStatement pstmt = connection.prepareStatement(querySql);
+            this.queryStmt = pstmt;
+
+            // Bind parameters
+            for (int i = 0; i < queryParams.size(); i++) {
+                pstmt.setObject(i + 1, queryParams.get(i));
+            }
+
+            rs = pstmt.executeQuery();
             this.resultSet = rs;
-            
+
             // SQL queries get column information from ResultSetMetaData, table queries from table metadata
             if (dbCommandConfig.getDbTypeEnum() == DatabaseTypeEnum.SQL) {
                 this.initArrowSchemaFromResultSet(rs);
@@ -184,7 +207,7 @@ public class DatabaseDoGetContext {
             closeResourcesQuietly(this.resultSet, this.queryStmt);
             this.resultSet = null;
             this.queryStmt = null;
-            
+
             String msg = e instanceof SQLException ? e.getMessage() : "database execute sql error";
             log.error("SQL execution failed on table {}: {}", tableName != null ? tableName : "N/A", e.getMessage(), e);
             throw DataproxyException.of(DataproxyErrorCode.DATABASE_ERROR, msg, e);
@@ -193,7 +216,7 @@ public class DatabaseDoGetContext {
             loadLazyConfig(error);
         }
     }
-    
+
     /**
      * Silently close resources (for cleanup in exception handling).
      */
@@ -216,7 +239,7 @@ public class DatabaseDoGetContext {
 
     public void close() {
         SQLException firstException = null;
-        
+
         // Close resources in reverse order
         if (resultSet != null) {
             try {
@@ -226,7 +249,7 @@ public class DatabaseDoGetContext {
                 firstException = e;
             }
         }
-        
+
         if (queryStmt != null) {
             try {
                 queryStmt.close();
@@ -237,7 +260,7 @@ public class DatabaseDoGetContext {
                 }
             }
         }
-        
+
         if (conn != null) {
             try {
                 conn.close();
@@ -248,7 +271,7 @@ public class DatabaseDoGetContext {
                 }
             }
         }
-        
+
         if (firstException != null) {
             throw new RuntimeException("Error closing database resources", firstException);
         }
@@ -259,27 +282,42 @@ public class DatabaseDoGetContext {
      * Used for table query scenarios to get complete column information of the table.
      *
      * @param metaData Database metadata
-     * @param tableName Table name
+     * @param tableName Table name (may contain schema prefix, e.g., "schema.table")
      * @throws SQLException SQL exception
      */
     private void initArrowSchemaFromColumns(DatabaseMetaData metaData, String tableName) throws SQLException {
-        String schemaName = dbCommandConfig.getDbConnectConfig().database();
-        log.debug("Querying column information: schema={}, catalog=null, tableName={}", schemaName, tableName);
-        
+        // Parse schema.table format tableName
+        String schemaPattern = null;
+        String tableNamePattern = tableName;
+
+        if (tableName != null && tableName.contains(".")) {
+            // If contains dot, treat it as schema.table format
+            String[] parts = tableName.split("\\.", 2);
+            if (parts.length == 2) {
+                schemaPattern = parts[0];
+                tableNamePattern = parts[1];
+                log.debug("Parsed tableName = {} -> schemaPattern = {}, tableNamePattern = {}",
+                         tableName, schemaPattern, tableNamePattern);
+            }
+        }
+
+        log.debug("Querying column information: schema={}, catalog=null, tableName={}", 
+                 schemaPattern, tableNamePattern);
+
         List<ColumnInfo> columnInfos = new ArrayList<>();
-        try (ResultSet columns = metaData.getColumns(null, schemaName, tableName, null)) {
+        try (ResultSet columns = metaData.getColumns(null, schemaPattern, tableNamePattern, null)) {
             while (columns.next()) {
                 String columnName = columns.getString("COLUMN_NAME");
                 String columnType = columns.getString("TYPE_NAME");
-                
+
                 // Safely get precision and scale information
                 int precision = safeGetInt(() -> columns.getInt("COLUMN_SIZE"), columnName, "COLUMN_SIZE", 0);
                 int scale = safeGetInt(() -> columns.getInt("DECIMAL_DIGITS"), columnName, "DECIMAL_DIGITS", -1);
-                
+
                 columnInfos.add(new ColumnInfo(columnName, columnType, precision, scale));
             }
         }
-        
+
         schema = buildSchemaFromColumnInfos(columnInfos);
         log.debug("Built schema with {} columns for table {}", columnInfos.size(), tableName);
     }
@@ -299,12 +337,12 @@ public class DatabaseDoGetContext {
         for (int i = 1; i <= columnCount; i++) {
             String columnName = metaData.getColumnName(i);
             String columnType = metaData.getColumnTypeName(i);
-            
+
             final int index = i;
             // Safely get precision and scale information
             int precision = safeGetInt(() -> metaData.getPrecision(index), columnName, "precision", 0);
             int scale = safeGetInt(() -> metaData.getScale(index), columnName, "scale", -1);
-            
+
             columnInfos.add(new ColumnInfo(columnName, columnType, precision, scale));
         }
 
@@ -320,17 +358,17 @@ public class DatabaseDoGetContext {
      */
     private Schema buildSchemaFromColumnInfos(List<ColumnInfo> columnInfos) {
         List<Field> fields = new ArrayList<>(columnInfos.size());
-        
+
         for (ColumnInfo info : columnInfos) {
             ArrowType arrowType = determineArrowType(
-                info.type,
-                () -> info.precision,
-                () -> info.scale,
-                info.name
+                    info.type,
+                    () -> info.precision,
+                    () -> info.scale,
+                    info.name
             );
             fields.add(new Field(info.name, FieldType.nullable(arrowType), null));
         }
-        
+
         return new Schema(fields);
     }
 
@@ -354,14 +392,14 @@ public class DatabaseDoGetContext {
 
     /**
      * Determine Arrow type based on JDBC type name.
-     * 
+     *
      * @param columnType JDBC type name (e.g., "TIMESTAMP(6)", "DECIMAL", "TIME")
      * @param precisionSupplier Precision supplier (for DECIMAL type)
      * @param scaleSupplier Scale/precision supplier (for time type precision in DECIMAL type)
      * @param columnName Column name (for logging)
      * @return Arrow type
      */
-    private ArrowType determineArrowType(String columnType, 
+    private ArrowType determineArrowType(String columnType,
                                          java.util.function.Supplier<Integer> precisionSupplier,
                                          java.util.function.Supplier<Integer> scaleSupplier,
                                          String columnName) {
@@ -378,7 +416,7 @@ public class DatabaseDoGetContext {
             }
             return new ArrowType.Decimal(precision, scale, 128);
         }
-        
+
         // For time types, try to construct type name with precision from precision information
         String typeNameWithPrecision = addPrecisionToTypeName(columnType, scaleSupplier, columnName);
         return this.jdbcType2ArrowType.apply(typeNameWithPrecision);
@@ -387,7 +425,7 @@ public class DatabaseDoGetContext {
     /**
      * Extract base type name (remove precision information).
      * Example: DECIMAL(38,10) -> DECIMAL, TIMESTAMP(6) -> TIMESTAMP
-     * 
+     *
      * @param columnType JDBC type name
      * @return Base type name (uppercase, precision information removed)
      */
@@ -401,7 +439,7 @@ public class DatabaseDoGetContext {
     /**
      * Check if it's DECIMAL type (including aliases).
      * Supports type names with precision information, such as "DECIMAL(38,10)", "NUMERIC(20,5)", etc.
-     * 
+     *
      * @param columnType JDBC type name
      * @return Whether it's DECIMAL type
      */
@@ -415,7 +453,7 @@ public class DatabaseDoGetContext {
 
     /**
      * Add precision information to time type (if TYPE_NAME doesn't contain precision but DECIMAL_DIGITS has value).
-     * 
+     *
      * @param columnType JDBC type name
      * @param scaleSupplier Precision supplier (DECIMAL_DIGITS)
      * @param columnName Column name (for logging)
@@ -428,30 +466,30 @@ public class DatabaseDoGetContext {
         if (columnType != null && columnType.contains("(")) {
             return columnType;
         }
-        
+
         // Extract base type name (remove possible precision information)
         String baseType = extractBaseTypeName(columnType);
-        
+
         // Check if it's a time type that requires precision information
         if (!isTimeType(baseType)) {
             return columnType;
         }
-        
+
         // Try to get precision from DECIMAL_DIGITS
         int decimalDigits = scaleSupplier.get();
         if (decimalDigits >= 0) {
             String typeNameWithPrecision = baseType + "(" + decimalDigits + ")";
-            log.debug("Constructed type name with precision: {} -> {} for column {}", 
+            log.debug("Constructed type name with precision: {} -> {} for column {}",
                     columnType, typeNameWithPrecision, columnName);
             return typeNameWithPrecision;
         }
-        
+
         return columnType;
     }
 
     /**
      * Check if it's a time type that requires precision information.
-     * 
+     *
      * @param baseType Base type name (uppercase, precision information removed)
      * @return Whether it's a time type
      */
@@ -471,7 +509,7 @@ public class DatabaseDoGetContext {
                 throw new IllegalArgumentException("#getTaskConfigs is empty");
             }
 
-            log.debug("Loading lazy config: taskConfigs size={}, ticketWrapperMap size={}", 
+            log.debug("Loading lazy config: taskConfigs size={}, ticketWrapperMap size={}",
                     taskConfigs.size(), ticketWrapperMap.size());
 
             int index = 0;

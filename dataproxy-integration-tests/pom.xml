@@ -34,6 +34,12 @@
         </dependency>
         <dependency>
             <groupId>org.secretflow</groupId>
+            <artifactId>dataproxy-plugin-kingbase</artifactId>
+        </dependency>
+
+        <!-- dameng -->
+        <dependency>
+            <groupId>org.secretflow</groupId>
             <artifactId>dataproxy-plugin-dameng</artifactId>
         </dependency>
 
@@ -133,12 +139,6 @@
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <executions>
                     <execution>
-                        <id>prepare-agent</id>
-                        <goals>
-                            <goal>prepare-agent</goal>
-                        </goals>
-                    </execution>
-                    <execution>
                         <id>report-aggregate</id>
                         <phase>test</phase>
                         <goals>
@@ -146,9 +146,43 @@
                         </goals>
                     </execution>
                 </executions>
-                <configuration>
-                    <outputDirectory>${project.build.directory}/jacoco-aggregate-report</outputDirectory>
-                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>1.8</version>
+                <executions>
+                    <execution>
+                        <id>build</id>
+                        <phase>compile</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <echo>run chmod in ${basedir}</echo>
+                                <chmod file="${basedir}/../scripts/ci/merge_test.sh" perm="ugo+rx"/>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <artifactId>exec-maven-plugin</artifactId>
+                <groupId>org.codehaus.mojo</groupId>
+                <version>1.6.0</version>
+                <executions>
+                    <execution>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>/bin/bash</executable>
+                            <executable>${basedir}/../scripts/ci/merge_test.sh</executable>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

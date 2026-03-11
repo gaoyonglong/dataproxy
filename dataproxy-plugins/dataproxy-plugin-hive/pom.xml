@@ -59,6 +59,8 @@
                 </exclusion>
             </exclusions>
         </dependency>
+
+        <!-- Hive Service -->
         <dependency>
             <groupId>org.apache.hive</groupId>
             <artifactId>hive-service</artifactId>
@@ -71,8 +73,21 @@
                     <groupId>net.shibboleth.tool</groupId>
                     <artifactId>xmlsectool</artifactId>
                 </exclusion>
+                <exclusion>
+                    <groupId>org.apache.atlas</groupId>
+                    <artifactId>atlas-intg</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.pac4j</groupId>
+                    <artifactId>pac4j-saml-opensamlv3</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.springframework</groupId>
+                    <artifactId>spring-core</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
+        
 
         <!-- JUnit 5 -->
         <dependency>

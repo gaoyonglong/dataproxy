@@ -38,6 +38,7 @@ import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.SmallIntVector;
 import org.apache.arrow.vector.TinyIntVector;
 import org.apache.arrow.vector.VarCharVector;
+import org.apache.arrow.vector.LargeVarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
@@ -235,6 +236,12 @@ public class OdpsRecordWriter implements Writer {
                 }
                 log.warn("Type Utf8 is not VarCharVector, value is: {}", fieldVector.getObject(index).toString());
             }
+            case LargeUtf8 -> {
+                if (fieldVector instanceof LargeVarCharVector vector) {
+                    return new String(vector.get(index), StandardCharsets.UTF_8);
+                }
+                log.warn("Type LargeUtf8 is not LargeVarCharVector, value is: {}", fieldVector.getObject(index).toString());
+            }
             case Null -> {
                 return null;
             }
@@ -410,12 +417,12 @@ public class OdpsRecordWriter implements Writer {
         return Column.newBuilder(field.getName(), convertToType(field.getType())).build();
     }
 
-    private TypeInfo convertToType(ArrowType type) {
+    private static TypeInfo convertToType(ArrowType type) {
 
         ArrowType.ArrowTypeID arrowTypeID = type.getTypeID();
 
         switch (arrowTypeID) {
-            case Utf8 -> {
+            case Utf8, LargeUtf8 -> {
                 return TypeInfoFactory.STRING;
             }
             case FloatingPoint -> {

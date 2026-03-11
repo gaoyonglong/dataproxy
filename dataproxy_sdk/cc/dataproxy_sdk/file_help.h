@@ -40,6 +40,8 @@ class FileHelpWrite {
     bool csv_include_header = true;
     arrow::csv::QuotingStyle csv_quoting_style =
         arrow::csv::QuotingStyle::Needed;
+    // CSV null value representation option
+    std::string csv_null_value;
     static Options Defaults();
   };
 
@@ -64,6 +66,9 @@ class FileHelpRead {
     std::unordered_map<std::string, std::shared_ptr<arrow::DataType>>
         column_types;
     std::vector<std::string> include_columns;
+    // CSV null value handling options
+    bool csv_strings_can_be_null = false;
+    std::vector<std::string> csv_null_values;
     static Options Defaults();
   };
 

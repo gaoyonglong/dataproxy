@@ -16,9 +16,11 @@
 
 #include <iostream>
 #include <thread>
+#include <vector>
 
 #include "arrow/flight/api.h"
 #include "arrow/table.h"
+#include "arrow/util/key_value_metadata.h"
 #include "spdlog/spdlog.h"
 
 namespace dataproxy_sdk {
@@ -27,11 +29,14 @@ class DataMeshMockServer : public arrow::flight::FlightServerBase {
  public:
   DataMeshMockServer(int dp_num) : dp_num_(dp_num) {}
 
+ private:
+  std::shared_ptr<arrow::Schema> schema_;
+
  public:
   arrow::Status GetFlightInfo(
-      const arrow::flight::ServerCallContext &,
-      const arrow::flight::FlightDescriptor &descriptor,
-      std::unique_ptr<arrow::flight::FlightInfo> *info) override {
+      const arrow::flight::ServerCallContext&,
+      const arrow::flight::FlightDescriptor& descriptor,
+      std::unique_ptr<arrow::flight::FlightInfo>* info) override {
     SPDLOG_INFO("GetFlightInfo:{}", descriptor.ToString());
     ARROW_ASSIGN_OR_RAISE(auto flight_info, MakeFlightInfo());
     *info = std::unique_ptr<arrow::flight::FlightInfo>(
@@ -41,18 +46,29 @@ class DataMeshMockServer : public arrow::flight::FlightServerBase {
   }
 
   arrow::Status DoPut(
-      const arrow::flight::ServerCallContext &,
+      const arrow::flight::ServerCallContext&,
       std::unique_ptr<arrow::flight::FlightMessageReader> reader,
       std::unique_ptr<arrow::flight::FlightMetadataWriter>) override {
-    ARROW_ASSIGN_OR_RAISE(table_, reader->ToTable());
+    auto schema_result = reader->GetSchema();
+    if (schema_result.ok()) {
+      schema_ = schema_result.ValueOrDie();
+      ARROW_ASSIGN_OR_RAISE(table_, reader->ToTable());
+      SPDLOG_INFO("Created table with reader schema, {} rows",
+                  table_->num_rows());
+    } else if (schema_) {
+      // Fallback to stored schema
+      ARROW_ASSIGN_OR_RAISE(table_, arrow::Table::MakeEmpty(schema_));
+      SPDLOG_INFO("Created empty table with stored schema, {} rows",
+                  table_->num_rows());
+    }
 
     return arrow::Status::OK();
   }
 
   arrow::Status DoGet(
-      const arrow::flight::ServerCallContext &,
-      const arrow::flight::Ticket &request,
-      std::unique_ptr<arrow::flight::FlightDataStream> *stream) override {
+      const arrow::flight::ServerCallContext&,
+      const arrow::flight::Ticket& request,
+      std::unique_ptr<arrow::flight::FlightDataStream>* stream) override {
     std::vector<std::shared_ptr<arrow::RecordBatch>> batches;
     std::shared_ptr<arrow::RecordBatchReader> owning_reader;
     std::shared_ptr<arrow::Schema> schema;
@@ -74,9 +90,9 @@ class DataMeshMockServer : public arrow::flight::FlightServerBase {
   }
 
   arrow::Status DoAction(
-      const arrow::flight::ServerCallContext &,
-      const arrow::flight::Action &action,
-      std::unique_ptr<arrow::flight::ResultStream> *result) override {
+      const arrow::flight::ServerCallContext&,
+      const arrow::flight::Action& action,
+      std::unique_ptr<arrow::flight::ResultStream>* result) override {
     std::vector<arrow::flight::Result> results;
     ARROW_ASSIGN_OR_RAISE(auto flight_result,
                           arrow::flight::Result::Deserialize(""));
@@ -115,11 +131,12 @@ class DataMeshMockServer : public arrow::flight::FlightServerBase {
 
   int dp_num_;
   std::shared_ptr<arrow::Table> table_;
+  std::vector<std::shared_ptr<arrow::RecordBatch>> received_batches_;
 };
 
 class DataMeshMock::Impl {
  public:
-  arrow::Status StartServer(const std::string &dm_address, int dp_num) {
+  arrow::Status StartServer(const std::string& dm_address, int dp_num) {
     ARROW_ASSIGN_OR_RAISE(auto options, arrow::flight::Location::Parse(
                                             "grpc+tcp://" + dm_address));
     arrow::flight::FlightServerOptions server_location(options);
@@ -157,7 +174,7 @@ DataMeshMock::DataMeshMock() { impl_ = std::make_unique<DataMeshMock::Impl>(); }
 
 DataMeshMock::~DataMeshMock() = default;
 
-arrow::Status DataMeshMock::StartServer(const std::string &dm_address,
+arrow::Status DataMeshMock::StartServer(const std::string& dm_address,
                                         int dp_num) {
   return impl_->StartServer(dm_address, dp_num);
 }

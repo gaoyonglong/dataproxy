@@ -26,6 +26,7 @@ import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.arrow.vector.ipc.message.IpcOption;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.secretflow.dataproxy.plugin.database.config.DatabaseCommandConfig;
 import org.secretflow.dataproxy.plugin.database.config.DatabaseWriteConfig;
 import org.secretflow.dataproxy.plugin.database.config.TaskConfig;
@@ -128,7 +129,8 @@ public abstract class AbstractDatabaseFlightProducer extends NoOpFlightProducer 
             } else {
                 throw DataproxyException.of(DataproxyErrorCode.PARAMS_UNRELIABLE, "The database read parameter is invalid, type url: " + param.getClass());
             }
-            listener.start(dbReader.getVectorSchemaRoot());
+            VectorSchemaRoot vectorSchemaRoot = dbReader.getVectorSchemaRoot();
+            listener.start(vectorSchemaRoot);
             while (true) {
                 if (context.isCancelled()) {
                     log.warn("reader is cancelled");
@@ -136,6 +138,8 @@ public abstract class AbstractDatabaseFlightProducer extends NoOpFlightProducer 
                 }
 
                 if (dbReader.loadNextBatch()) {
+                    Schema schema = vectorSchemaRoot.getSchema();
+                    log.info("dbReader schema: {}", schema.toString());
                     listener.putNext();
                 } else{
                     break;

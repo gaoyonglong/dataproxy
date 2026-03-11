@@ -88,6 +88,20 @@ class RandomBatchGeneratorImpl {
     return arrow::Status::OK();
   }
 
+  arrow::Status Visit(const arrow::LargeStringType &) {
+    auto builder = arrow::LargeStringBuilder();
+    std::uniform_int_distribution<> d(0, 1000);
+
+    for (int32_t i = 0; i < num_rows_; ++i) {
+      std::string str = "large_string_" + std::to_string(d(gen_));
+      CHECK_ARROW_OR_THROW(builder.Append(str));
+    }
+
+    ASSIGN_DP_OR_THROW(auto array, builder.Finish());
+    arrays_.push_back(array);
+    return arrow::Status::OK();
+  }
+
  protected:
   std::random_device rd_{};
   std::mt19937 gen_{rd_()};  // 随机种子
@@ -108,6 +122,15 @@ std::shared_ptr<arrow::RecordBatch> RandomBatchGenerator::ExampleGenerate(
   auto f0 = arrow::field("x", arrow::int64());
   auto f1 = arrow::field("y", arrow::int64());
   auto f2 = arrow::field("z", arrow::int64());
+  std::shared_ptr<arrow::Schema> schema = arrow::schema({f0, f1, f2});
+  return RandomBatchGenerator::Generate(schema, row);
+}
+
+std::shared_ptr<arrow::RecordBatch>
+RandomBatchGenerator::ExampleGenerateWithLargeUtf8(int row) {
+  auto f0 = arrow::field("id", arrow::int64());
+  auto f1 = arrow::field("large_text", arrow::large_utf8());
+  auto f2 = arrow::field("value", arrow::int64());
   std::shared_ptr<arrow::Schema> schema = arrow::schema({f0, f1, f2});
   return RandomBatchGenerator::Generate(schema, row);
 }
