@@ -637,4 +637,11 @@
             </plugins>
         </pluginManagement>
     </build>
+
+    <repositories>
+        <repository>
+            <id>local-repo</id>
+            <url>file://${project.basedir}/local-repo</url>
+        </repository>
+    </repositories>
 </project>
