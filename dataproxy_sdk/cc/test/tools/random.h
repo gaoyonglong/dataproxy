@@ -24,10 +24,6 @@ class RandomBatchGenerator {
       const std::shared_ptr<arrow::Schema>& schema, int32_t num_rows);
 
   static std::shared_ptr<arrow::RecordBatch> ExampleGenerate(int row = 10);
-
-  // New function to generate data with large utf8 type
-  static std::shared_ptr<arrow::RecordBatch> ExampleGenerateWithLargeUtf8(
-      int row = 10);
 };
 
 }  // namespace dataproxy_sdk

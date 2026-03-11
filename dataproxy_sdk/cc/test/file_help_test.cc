@@ -14,7 +14,6 @@
 
 #include "dataproxy_sdk/file_help.h"
 
-#include <fstream>
 #include <iostream>
 
 #include "arrow/builder.h"
@@ -241,110 +240,6 @@ TEST(FileHelpTest, LargeBinary) {
   reader->DoClose();
 
   System("diff large_file_source.txt large_file_equal.txt");
-}
-
-// Test for CSV null value handling
-FileHelpRead::Options GetCSVNullHandlingOptions() {
-  FileHelpRead::Options read_options = FileHelpRead::Options::Defaults();
-  read_options.column_types.emplace("name", arrow::utf8());
-  read_options.include_columns.emplace_back("name");
-  read_options.csv_strings_can_be_null = true;
-  read_options.csv_null_values = {"NULL", "null", "N/A"};
-  return read_options;
-}
-
-TEST(FileHelpTestWithOption, CSVNullHandling) {
-  // Create a CSV file with null values
-  std::ofstream csv_file("test_null.csv");
-  csv_file << "name\n";
-  csv_file << "Alice\n";
-  csv_file << "NULL\n";
-  csv_file << "Bob\n";
-  csv_file << "null\n";
-  csv_file << "N/A\n";
-  csv_file << "Charlie\n";
-  csv_file.close();
-
-  // Read the CSV file with null value handling
-  std::shared_ptr<arrow::RecordBatch> read_batch;
-  auto reader = FileHelpRead::Make(proto::FileFormat::CSV, "test_null.csv",
-                                   GetCSVNullHandlingOptions());
-  reader->DoRead(&read_batch);
-  reader->DoClose();
-
-  // Verify that the null values are properly handled
-  ASSERT_NE(read_batch, nullptr);
-  ASSERT_EQ(read_batch->num_rows(), 6);
-
-  // Check that the second, fourth, and fifth rows are null
-  auto string_array =
-      std::dynamic_pointer_cast<arrow::StringArray>(read_batch->column(0));
-  ASSERT_NE(string_array, nullptr);
-
-  EXPECT_FALSE(string_array->IsNull(0));  // Alice
-  EXPECT_TRUE(string_array->IsNull(1));   // NULL
-  EXPECT_FALSE(string_array->IsNull(2));  // Bob
-  EXPECT_TRUE(string_array->IsNull(3));   // null
-  EXPECT_TRUE(string_array->IsNull(4));   // N/A
-  EXPECT_FALSE(string_array->IsNull(5));  // Charlie
-
-  // Clean up
-  std::remove("test_null.csv");
-}
-
-// Test for CSV null value representation
-TEST(FileHelpTestWithOption, CSVNullRepresentation) {
-  // Create a RecordBatch with null values
-  auto schema = arrow::schema({arrow::field("name", arrow::utf8())});
-
-  arrow::StringBuilder builder;
-  CHECK_ARROW_OR_THROW(builder.Append("Alice"));
-  CHECK_ARROW_OR_THROW(builder.AppendNull());  // null value
-  CHECK_ARROW_OR_THROW(builder.Append("Bob"));
-  CHECK_ARROW_OR_THROW(builder.AppendNull());  // null value
-  CHECK_ARROW_OR_THROW(builder.Append("Charlie"));
-
-  std::shared_ptr<arrow::Array> array;
-  ASSIGN_ARROW_OR_THROW(array, builder.Finish());
-
-  std::vector<std::shared_ptr<arrow::Array>> arrays = {array};
-  std::shared_ptr<arrow::RecordBatch> batch =
-      arrow::RecordBatch::Make(schema, arrays[0]->length(), arrays);
-
-  // Write to CSV with custom null value representation
-  FileHelpWrite::Options write_options = FileHelpWrite::Options::Defaults();
-  write_options.csv_null_value = "NULL";  // Custom null value
-
-  auto writer = FileHelpWrite::Make(proto::FileFormat::CSV,
-                                    "test_null_output.csv", write_options);
-  writer->DoWrite(batch);
-  writer->DoClose();
-
-  // Read the CSV file back to verify
-  std::ifstream csv_file("test_null_output.csv");
-  std::string line;
-  std::vector<std::string> lines;
-
-  while (std::getline(csv_file, line)) {
-    lines.push_back(line);
-  }
-  csv_file.close();
-
-  // Verify the content (Arrow CSV writer quotes values by default)
-  ASSERT_EQ(lines.size(), 6);       // header + 5 data rows
-  EXPECT_EQ(lines[0], "\"name\"");  // header
-  EXPECT_EQ(lines[1], "\"Alice\"");
-  // With Arrow's native null_string support, null values are written without
-  // quotes
-  EXPECT_EQ(lines[2],
-            "NULL");  // null value represented as NULL (without quotes)
-  EXPECT_EQ(lines[3], "\"Bob\"");
-  EXPECT_EQ(lines[4],
-            "NULL");  // null value represented as NULL (without quotes)
-  EXPECT_EQ(lines[5], "\"Charlie\"");
-
-  // Clean up
-  std::remove("test_null_output.csv");
 }
 
 }  // namespace dataproxy_sdk

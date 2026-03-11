@@ -78,7 +78,6 @@ class CSVFileWrite : public FileHelpWrite {
     options_.quoting_style = options.csv_quoting_style;
     options_.include_header = options.csv_include_header;
     options_.batch_size = options.batch_size;
-    options_.null_string = options.csv_null_value;
     ASSIGN_ARROW_OR_THROW(out_stream_,
                           arrow::io::FileOutputStream::Open(file_name));
   }
@@ -215,11 +214,6 @@ class CSVFileRead : public FileHelpRead {
         arrow::csv::ConvertOptions::Defaults();
     convert_options.column_types = options.column_types;
     convert_options.include_columns = options.include_columns;
-    // Set CSV null value handling options
-    convert_options.strings_can_be_null = options.csv_strings_can_be_null;
-    if (!options.csv_null_values.empty()) {
-      convert_options.null_values = options.csv_null_values;
-    }
     ASSIGN_ARROW_OR_THROW(
         file_reader_,
         arrow::csv::StreamingReader::Make(
@@ -235,10 +229,7 @@ class CSVFileRead : public FileHelpRead {
 class ORCFileRead : public FileHelpRead {
  public:
   void DoRead(std::shared_ptr<arrow::RecordBatch>* record_batch) {
-    if (current_stripe_ >= orc_reader_->NumberOfStripes()) {
-      *record_batch = nullptr;
-      return;
-    }
+    if (current_stripe_ >= orc_reader_->NumberOfStripes()) return;
     if (include_names_.empty()) {
       ASSIGN_ARROW_OR_THROW(*record_batch,
                             orc_reader_->ReadStripe(current_stripe_));

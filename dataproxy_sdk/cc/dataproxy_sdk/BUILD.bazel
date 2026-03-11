@@ -79,7 +79,6 @@ dataproxy_cc_library(
     deps = [
         ":exception",
         "@arrow//:arrow_flight",
-        ":utils",
     ],
 )
 

@@ -204,25 +204,11 @@ class DownloadInfo {
     return std::get_if<ORCFileInfo>(&file_info_);
   }
 
-  // CSV null value representation options
-  const std::string& csv_null_value() const { return csv_null_value_; }
-  void set_csv_null_value(std::string csv_null_value) {
-    csv_null_value_ = std::move(csv_null_value);
-  }
-  std::string DebugString() const {
-    return "DownloadInfo{domaindata_id=" + domaindata_id_ +
-           ", partition_spec=" + partition_spec_ +
-           ", csv_null_value=" + csv_null_value_ + "}";
-  }
-
  private:
   std::string domaindata_id_;
   // specific the partition column and value, such as "dmdt=20240520"
   std::string partition_spec_;
   std::variant<std::monostate, ORCFileInfo> file_info_;
-
-  // CSV null value representation options
-  std::string csv_null_value_;
 };
 
 class SQLInfo {
@@ -335,22 +321,6 @@ class UploadInfo {
   DataColumn* add_columns() { return &columns_.emplace_back(); }
   const std::string& vendor() const { return vendor_; }
   void set_vendor(std::string vendor) { vendor_ = std::move(vendor); }
-
-  // CSV null value handling options
-  const std::vector<std::string>& csv_null_values() const {
-    return csv_null_values_;
-  }
-  void set_csv_null_values(std::vector<std::string> csv_null_values) {
-    csv_null_values_ = std::move(csv_null_values);
-  }
-  std::vector<std::string>* mutable_csv_null_values() {
-    return &csv_null_values_;
-  }
-  int csv_null_values_size() { return csv_null_values_.size(); }
-
-  // Helper function to determine if strings can be null based on null_values
-  bool csv_strings_can_be_null() const { return !csv_null_values_.empty(); }
-
   std::string DebugString() const {
     std::string attributes_string;
     for (auto& [key, value] : attributes_) {
@@ -364,9 +334,7 @@ class UploadInfo {
            ", type=" + type_ + ", relative_uri=" + relative_uri_ +
            ", datasource_id=" + datasource_id_ +
            ", attributes=" + attributes_string + ", columns=" + columns_string +
-           ", vendor=" + vendor_ +
-           ", csv_null_values_size=" + std::to_string(csv_null_values_.size()) +
-           "}";
+           ", vendor=" + vendor_ + "}";
   }
 
  private:
@@ -397,9 +365,6 @@ class UploadInfo {
   // SecretFlow engine, another vendor's engine, or manually registered. it's
   // could be manual, secretflow or other vendor string.
   std::string vendor_;
-
-  // CSV null value handling option
-  std::vector<std::string> csv_null_values_;
 };
 
 }  // namespace proto
