@@ -65,7 +65,6 @@
         </dependency>
     </dependencies>
 
-
     <repositories>
         <repository>
             <id>local-repo</id>
