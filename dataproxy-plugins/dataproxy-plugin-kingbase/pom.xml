@@ -64,4 +64,12 @@
             <artifactId>lombok</artifactId>
         </dependency>
     </dependencies>
+
+
+    <repositories>
+        <repository>
+            <id>local-repo</id>
+            <url>file://${project.basedir}/local-repo</url>
+        </repository>
+    </repositories>
 </project>
