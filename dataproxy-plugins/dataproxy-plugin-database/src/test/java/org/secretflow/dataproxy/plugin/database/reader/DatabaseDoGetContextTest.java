@@ -30,6 +30,7 @@ import org.secretflow.v1alpha1.common.Common;
 
 import java.sql.*;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.function.Function;
 
@@ -53,6 +54,9 @@ public class DatabaseDoGetContextTest {
     private Statement mockStatement;
 
     @Mock
+    private PreparedStatement mockPreparedStatement;
+
+    @Mock
     private ResultSet mockResultSet;
 
     @Mock
@@ -66,7 +70,7 @@ public class DatabaseDoGetContextTest {
 
     private DatabaseConnectConfig dbConnectConfig;
     private Function<DatabaseConnectConfig, Connection> initDatabaseFunc;
-    private DatabaseDoGetContext.BuildQuerySqlFunc<String, List<String>, String, String> buildQuerySqlFunc;
+    private DatabaseDoGetContext.BuildQuerySqlFunc<String, List<String>, String, Object> buildQuerySqlFunc;
     private Function<String, ArrowType> jdbcType2ArrowType;
 
     @BeforeEach
@@ -76,15 +80,18 @@ public class DatabaseDoGetContextTest {
         // Set initDatabaseFunc
         initDatabaseFunc = config -> mockConnection;
         
-        // Set buildQuerySqlFunc
+        // Set buildQuerySqlFunc - returns SqlWithParams for table queries
         buildQuerySqlFunc = (tableName, columns, partition) -> {
-            StringBuilder sql = new StringBuilder("SELECT ");
-            sql.append(String.join(", ", columns));
-            sql.append(" FROM ").append(tableName);
-            if (partition != null && !partition.isEmpty()) {
-                sql.append(" WHERE ").append(partition);
+            if (partition == null || partition.isEmpty()) {
+                return new org.secretflow.dataproxy.plugin.database.writer.DatabaseRecordWriter.SqlWithParams(
+                    "SELECT " + String.join(", ", columns) + " FROM " + tableName,
+                    Collections.emptyList()
+                );
             }
-            return sql.toString();
+            return new org.secretflow.dataproxy.plugin.database.writer.DatabaseRecordWriter.SqlWithParams(
+                "SELECT " + String.join(", ", columns) + " FROM " + tableName + " WHERE " + partition,
+                Collections.emptyList()
+            );
         };
         
         // Set jdbcType2ArrowType
@@ -121,8 +128,8 @@ public class DatabaseDoGetContextTest {
         
         // Set mock behavior
         when(mockConnection.getMetaData()).thenReturn(mockDatabaseMetaData);
-        when(mockConnection.createStatement()).thenReturn(mockStatement);
-        when(mockStatement.executeQuery(anyString())).thenReturn(mockResultSet);
+        when(mockConnection.prepareStatement(anyString())).thenReturn(mockPreparedStatement);
+        when(mockPreparedStatement.executeQuery()).thenReturn(mockResultSet);
         when(mockDatabaseMetaData.getColumns(any(), any(), eq("test_table"), any()))
                 .thenReturn(mockColumnsResultSet);
         when(mockColumnsResultSet.next()).thenReturn(true, true, false);
@@ -218,9 +225,9 @@ public class DatabaseDoGetContextTest {
         
         DatabaseTableQueryConfig queryConfig = new DatabaseTableQueryConfig(dbConnectConfig, tableConfig);
         
-        // Mock SQLException
+        // Mock SQLException - table query uses PreparedStatement
         when(mockConnection.getMetaData()).thenReturn(mockDatabaseMetaData);
-        when(mockConnection.createStatement()).thenThrow(new SQLException("Database error"));
+        when(mockConnection.prepareStatement(anyString())).thenThrow(new SQLException("Database error"));
         
         assertThrows(DataproxyException.class, () -> {
             new DatabaseDoGetContext(
@@ -245,8 +252,8 @@ public class DatabaseDoGetContextTest {
         DatabaseTableQueryConfig queryConfig = new DatabaseTableQueryConfig(dbConnectConfig, tableConfig);
         
         when(mockConnection.getMetaData()).thenReturn(mockDatabaseMetaData);
-        when(mockConnection.createStatement()).thenReturn(mockStatement);
-        when(mockStatement.executeQuery(anyString())).thenReturn(mockResultSet);
+        when(mockConnection.prepareStatement(anyString())).thenReturn(mockPreparedStatement);
+        when(mockPreparedStatement.executeQuery()).thenReturn(mockResultSet);
         when(mockDatabaseMetaData.getColumns(any(), any(), eq("test_table"), any()))
                 .thenReturn(mockColumnsResultSet);
         when(mockColumnsResultSet.next()).thenReturn(true, false);
@@ -281,8 +288,8 @@ public class DatabaseDoGetContextTest {
         DatabaseTableQueryConfig queryConfig = new DatabaseTableQueryConfig(dbConnectConfig, tableConfig);
         
         when(mockConnection.getMetaData()).thenReturn(mockDatabaseMetaData);
-        when(mockConnection.createStatement()).thenReturn(mockStatement);
-        when(mockStatement.executeQuery(anyString())).thenReturn(mockResultSet);
+        when(mockConnection.prepareStatement(anyString())).thenReturn(mockPreparedStatement);
+        when(mockPreparedStatement.executeQuery()).thenReturn(mockResultSet);
         when(mockDatabaseMetaData.getColumns(any(), any(), eq("test_table"), any()))
                 .thenReturn(mockColumnsResultSet);
         when(mockColumnsResultSet.next()).thenReturn(true, false);
@@ -292,7 +299,7 @@ public class DatabaseDoGetContextTest {
         when(mockColumnsResultSet.getInt("DECIMAL_DIGITS")).thenReturn(-1);
         
         doNothing().when(mockResultSet).close();
-        doNothing().when(mockStatement).close();
+        doNothing().when(mockPreparedStatement).close();
         doNothing().when(mockConnection).close();
         
         DatabaseDoGetContext context = new DatabaseDoGetContext(
@@ -307,7 +314,7 @@ public class DatabaseDoGetContextTest {
         });
         
         verify(mockResultSet, times(1)).close();
-        verify(mockStatement, times(1)).close();
+        verify(mockPreparedStatement, times(1)).close();
         verify(mockConnection, times(1)).close();
     }
 
@@ -324,8 +331,8 @@ public class DatabaseDoGetContextTest {
         DatabaseTableQueryConfig queryConfig = new DatabaseTableQueryConfig(dbConnectConfig, tableConfig);
         
         when(mockConnection.getMetaData()).thenReturn(mockDatabaseMetaData);
-        when(mockConnection.createStatement()).thenReturn(mockStatement);
-        when(mockStatement.executeQuery(anyString())).thenReturn(mockResultSet);
+        when(mockConnection.prepareStatement(anyString())).thenReturn(mockPreparedStatement);
+        when(mockPreparedStatement.executeQuery()).thenReturn(mockResultSet);
         when(mockDatabaseMetaData.getColumns(any(), any(), eq("test_table"), any()))
                 .thenReturn(mockColumnsResultSet);
         when(mockColumnsResultSet.next()).thenReturn(true, false);
@@ -361,8 +368,8 @@ public class DatabaseDoGetContextTest {
         DatabaseTableQueryConfig queryConfig = new DatabaseTableQueryConfig(dbConnectConfig, tableConfig);
         
         when(mockConnection.getMetaData()).thenReturn(mockDatabaseMetaData);
-        when(mockConnection.createStatement()).thenReturn(mockStatement);
-        when(mockStatement.executeQuery(anyString())).thenReturn(mockResultSet);
+        when(mockConnection.prepareStatement(anyString())).thenReturn(mockPreparedStatement);
+        when(mockPreparedStatement.executeQuery()).thenReturn(mockResultSet);
         when(mockDatabaseMetaData.getColumns(any(), any(), eq("test_table"), any()))
                 .thenReturn(mockColumnsResultSet);
         when(mockColumnsResultSet.next()).thenReturn(true, false);
@@ -372,7 +379,7 @@ public class DatabaseDoGetContextTest {
         when(mockColumnsResultSet.getInt("DECIMAL_DIGITS")).thenReturn(-1);
         
         doNothing().when(mockResultSet).close();
-        doNothing().when(mockStatement).close();
+        doNothing().when(mockPreparedStatement).close();
         doThrow(new SQLException("Connection close error")).when(mockConnection).close();
         
         DatabaseDoGetContext context = new DatabaseDoGetContext(
@@ -437,8 +444,8 @@ public class DatabaseDoGetContextTest {
         DatabaseTableQueryConfig queryConfig = new DatabaseTableQueryConfig(dbConnectConfig, tableConfig);
         
         when(mockConnection.getMetaData()).thenReturn(mockDatabaseMetaData);
-        when(mockConnection.createStatement()).thenReturn(mockStatement);
-        when(mockStatement.executeQuery(anyString())).thenReturn(mockResultSet);
+        when(mockConnection.prepareStatement(anyString())).thenReturn(mockPreparedStatement);
+        when(mockPreparedStatement.executeQuery()).thenReturn(mockResultSet);
         when(mockDatabaseMetaData.getColumns(any(), any(), eq("test_table"), any()))
                 .thenReturn(mockColumnsResultSet);
         when(mockColumnsResultSet.next()).thenReturn(true, false);

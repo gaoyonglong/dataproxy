@@ -213,11 +213,11 @@ public class DatabaseRecordWriter implements Writer {
         if (fieldVector == null || index < 0) {
             return null;
         }
-        
+
         if (fieldVector.isNull(index)) {
             return null;
         }
-        
+
         ArrowType.ArrowTypeID arrowTypeID = fieldVector.getField().getType().getTypeID();
 
         switch (arrowTypeID) {
@@ -366,7 +366,7 @@ public class DatabaseRecordWriter implements Writer {
                         return timeObj;
                     }
                 }
-                log.debug("Time conversion failed, value type: {}", 
+                log.debug("Time conversion failed, value type: {}",
                     timeObj != null ? timeObj.getClass().getName() : "null");
                 return timeObj;
             }
@@ -443,7 +443,7 @@ public class DatabaseRecordWriter implements Writer {
 
     /**
      * Build single record from VectorSchemaRoot.
-     * 
+     *
      * @param root VectorSchemaRoot
      * @param rowIndex Row index
      * @return Record data Map
@@ -499,11 +499,11 @@ public class DatabaseRecordWriter implements Writer {
         } catch (SQLException e) {
             log.warn("Failed to get autoCommit status, assuming true", e);
         }
-        
+
         for (int rowIndex = 0; rowIndex < batchSize; rowIndex++) {
             Map<String, Object> record = buildRecord(root, rowIndex);
             this.insertData(commandConfig.getResultSchema(), record);
-            
+
             if (!autoCommit && (rowIndex + 1) % BATCH_NUM == 0) {
                 this.commitBatch();
             }
@@ -550,7 +550,7 @@ public class DatabaseRecordWriter implements Writer {
         if (connection == null) {
             return;
         }
-        
+
         try {
             // Rollback uncommitted transaction first if exists
             if (!connection.isClosed() && !connection.getAutoCommit()) {
@@ -561,7 +561,7 @@ public class DatabaseRecordWriter implements Writer {
                     log.warn("Failed to rollback transaction on close", e);
                 }
             }
-            
+
             if (!connection.isClosed()) {
                 connection.close();
             }
@@ -575,7 +575,7 @@ public class DatabaseRecordWriter implements Writer {
         String createTableSql = this.buildCreateTableSql.apply(tableName, schema, partitionSpec);
         try (Statement stmt = connection.createStatement()){
             stmt.executeUpdate(createTableSql);
-            log.info("Successfully created table: {}", tableName);
+            log.debug("Successfully created table: {}", tableName);
         } catch (SQLException e) {
             log.error("Failed to create table {}: {}", tableName, e.getMessage(), e);
             throw new RuntimeException("Failed to create table " + tableName + ": " + e.getMessage(), e);
@@ -667,14 +667,14 @@ public class DatabaseRecordWriter implements Writer {
         try (PreparedStatement stmt = connection.prepareStatement(sql)){
             stmt.executeUpdate();
         } catch (SQLException e) {
-            log.error("Failed to insert data into table {}: {}", tableName, e.getMessage(), e);
-            throw new RuntimeException("Failed to insert data into table " + tableName + ": " + e.getMessage(), e);
+            log.error("insert data error: sql:\"{}\" error:\"{}\"", sql, e.getMessage());
+            throw new RuntimeException(e);
         }
     }
 
     public void insertMultiData(Schema arrowSchema, List<Map<String, Object>> multiData){
         SqlWithParams sp = this.buildMultiInsertSql.apply(tableName, arrowSchema, multiData, partitionSpec);
-        
+
         // Build parameter type mapping: determine each parameter's type based on Arrow Schema
         // Note: INTERVAL types skip parameter list (directly embedded in SQL), so parameter index and column index may not match
         List<ArrowType> paramTypes = new ArrayList<>();
@@ -684,7 +684,7 @@ public class DatabaseRecordWriter implements Writer {
                 paramTypes.add(fieldType);
             }
         }
-        
+
         try (PreparedStatement ps = connection.prepareStatement(sp.sql);){
             for (int i = 0; i < sp.params.size(); i++) {
                 Object param = sp.params.get(i);
@@ -717,9 +717,11 @@ public class DatabaseRecordWriter implements Writer {
         }
     }
 
+
+    // create table when the table not exist
     private void preProcessing(String tableName){
         boolean tableExists = checkTableExists.apply(connection, tableName);
-        
+
         if (tableExists) {
             // If partition spec exists, delete only partition data (partition overwrite)
             if (partitionSpec != null && !partitionSpec.isEmpty()) {
@@ -727,13 +729,13 @@ public class DatabaseRecordWriter implements Writer {
                     this.deletePartitionData(partitionSpec);
                     return; // Partition overwrite completed, no need to create table
                 } catch (SQLException e) {
-                    log.error("Failed to delete partition data from table {}: partition={}, error: {}", 
+                    log.error("Failed to delete partition data from table {}: partition={}, error: {}",
                             tableName, partitionSpec, e.getMessage(), e);
-                    throw new RuntimeException("Failed to delete partition data from table " + tableName + 
+                    throw new RuntimeException("Failed to delete partition data from table " + tableName +
                             ", partition=" + partitionSpec + ": " + e.getMessage(), e);
                 }
             }
-            
+
             // No partition spec, delete entire table (full table overwrite)
             try {
                 this.dropTable();
@@ -741,7 +743,7 @@ public class DatabaseRecordWriter implements Writer {
                 log.error("Failed to drop table {}: {}", tableName, e.getMessage(), e);
             }
         }
-        
+
         if(!checkTableExists.apply(connection, tableName)) {
             createTable(commandConfig.getResultSchema());
         } else if (partitionSpec == null || partitionSpec.isEmpty()) {

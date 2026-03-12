@@ -27,6 +27,7 @@ import org.secretflow.dataproxy.common.exceptions.DataproxyErrorCode;
 import org.secretflow.dataproxy.common.exceptions.DataproxyException;
 import org.secretflow.dataproxy.plugin.database.config.DatabaseConnectConfig;
 import org.secretflow.dataproxy.plugin.database.writer.DatabaseRecordWriter;
+import org.secretflow.dataproxy.plugin.database.writer.DatabaseRecordWriter.SqlWithParams;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -92,7 +93,7 @@ public class HiveUtil {
 
     }
 
-    public static String buildQuerySql(String tableName, List<String> fields, String whereClause) {
+    public static SqlWithParams buildQuerySql(String tableName, List<String> fields, String whereClause) {
         final Pattern columnOrValuePattern = Pattern.compile("^[a-zA-Z0-9_]+$");
 
         // Validate table name
@@ -108,12 +109,14 @@ public class HiveUtil {
         }
 
         // Process where clause
+        List<Object> whereParams = new ArrayList<>();
         String processedWhereClause = "";
         if (!whereClause.isEmpty()) {
             String[] groups = whereClause.split("[,/]");
             if (groups.length > 1) {
                 final Map<String, String> partitionSpec = parsePartition(whereClause);
 
+                List<String> list = new ArrayList<>();
                 for (Map.Entry<String, String> entry : partitionSpec.entrySet()) {
                     String key = entry.getKey();
                     String value = entry.getValue();
@@ -127,11 +130,11 @@ public class HiveUtil {
                     if (!value.matches("^[a-zA-Z0-9_.-]+$")) {
                         throw DataproxyException.of(DataproxyErrorCode.PARAMS_UNRELIABLE, "Invalid partition value:" + value);
                     }
-                }
 
-                List<String> list = partitionSpec.keySet().stream()
-                        .map(k -> k + "='" + escapeString(partitionSpec.get(k)) + "'")
-                        .toList();
+                    // Use parameter placeholder
+                    list.add(key + " = ?");
+                    whereParams.add(value);
+                }
                 processedWhereClause = String.join(" and ", list);
             } else {
                 // For simple where conditions, use stricter validation or disallow
@@ -140,10 +143,10 @@ public class HiveUtil {
             }
         }
 
-        String sql =  "select " + String.join(",", fields) + " from " + tableName +
+        String sql = "select " + String.join(",", fields) + " from " + tableName +
                       (processedWhereClause.isEmpty() ? "" : " where " + processedWhereClause);
         log.info("buildQuerySql sql:{}", sql);
-        return sql;
+        return new SqlWithParams(sql, whereParams);
     }
 
     public static String buildCreateTableSql(String tableName, Schema schema, Map<String, String> partition) {

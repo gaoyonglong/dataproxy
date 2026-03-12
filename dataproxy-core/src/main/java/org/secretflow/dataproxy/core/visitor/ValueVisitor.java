@@ -91,3 +91,99 @@ public interface ValueVisitor<T> {
     }
 
 }
+
+interface BigDecimalValueVisitor extends ValueVisitor<BigDecimal> {
+
+    @Override
+    default BigDecimal visit(@Nonnull Integer value) {
+        return BigDecimal.valueOf(value);
+    }
+
+    @Override
+    default BigDecimal visit(@Nonnull Long value) {
+        return BigDecimal.valueOf(value);
+    }
+
+    @Override
+    default BigDecimal visit(@Nonnull Double value) {
+        return BigDecimal.valueOf(value);
+    }
+
+    @Override
+    default BigDecimal visit(@Nonnull Float value) {
+        return BigDecimal.valueOf(value);
+    }
+
+    @Override
+    default BigDecimal visit(String value) {
+        try {
+            return new BigDecimal(value);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Cannot convert string to BigDecimal: " + value, e);
+        }
+    }
+
+    @Override
+    default BigDecimal visit(@Nonnull BigDecimal value) {
+        return value;
+    }
+
+    @Override
+    default BigDecimal visit(@Nonnull Object value) {
+        if (value instanceof Number) {
+            return BigDecimal.valueOf(((Number) value).doubleValue());
+        }
+        if (value instanceof String) {
+            return visit(value);
+        }
+        throw new IllegalArgumentException("BigDecimalValueVisitor unsupported type: " + value.getClass().getName());
+    }
+}
+
+interface ObjectValueVisitor extends ValueVisitor<Object> {
+
+    @Override
+    default Object visit(@Nonnull Integer value) {
+        return value;
+    }
+
+    @Override
+    default Object visit(@Nonnull Long value) {
+        return value;
+    }
+
+    @Override
+    default Object visit(@Nonnull Double value) {
+        return value;
+    }
+
+    @Override
+    default Object visit(@Nonnull Float value) {
+        return value;
+    }
+
+    @Override
+    default Object visit(boolean value) {
+        return value;
+    }
+
+    @Override
+    default Object visit(String value) {
+        return value;
+    }
+
+    @Override
+    default Object visit(@Nonnull byte[] value) {
+        return value;
+    }
+
+    @Override
+    default Object visit(@Nonnull BigDecimal value) {
+        return value;
+    }
+
+    @Override
+    default Object visit(@Nonnull Object value) {
+        return value;
+    }
+}

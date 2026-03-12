@@ -29,6 +29,7 @@ import org.secretflow.dataproxy.common.exceptions.DataproxyErrorCode;
 import org.secretflow.dataproxy.common.exceptions.DataproxyException;
 import org.secretflow.dataproxy.plugin.database.config.DatabaseConnectConfig;
 import org.secretflow.dataproxy.plugin.database.writer.DatabaseRecordWriter;
+import org.secretflow.dataproxy.plugin.database.writer.DatabaseRecordWriter.SqlWithParams;
 
 import java.sql.*;
 import java.time.*;
@@ -132,7 +133,7 @@ public class DamengUtil {
      * @param partitionClause Partition specification (e.g., "dt=20240101")
      * @return SELECT SQL statement
      */
-    public static String buildQuerySql(String tableName, List<String> columns, String partitionClause) {
+    public static SqlWithParams buildQuerySql(String tableName, List<String> columns, String partitionClause) {
         if (columns == null || columns.isEmpty()) {
             throw DataproxyException.of(DataproxyErrorCode.PARAMS_UNRELIABLE, "columns cannot be empty");
         }
@@ -147,6 +148,7 @@ public class DamengUtil {
             }
         }
 
+        List<Object> params = new ArrayList<>();
         String sql = "SELECT " + String.join(", ", columns) + " FROM " + tableName;
 
         if (partitionClause != null && !partitionClause.trim().isEmpty()) {
@@ -165,15 +167,17 @@ public class DamengUtil {
                     throw DataproxyException.of(DataproxyErrorCode.PARAMS_UNRELIABLE, "Invalid partition value:" + value);
                 }
 
-                conditions.add(key + "='" + escapeString(value) + "'");
+                // Use parameter placeholder
+                conditions.add(key + " = ?");
+                params.add(value);
             }
-            String processedPartition = String.join(" AND ", conditions);
 
+            String processedPartition = String.join(" AND ", conditions);
             sql += " WHERE " + processedPartition;
         }
 
         log.info("Built query SQL: {}", sql);
-        return sql;
+        return new SqlWithParams(sql, params);
     }
 
     /**

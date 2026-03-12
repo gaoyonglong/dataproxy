@@ -57,6 +57,11 @@
 
         <dependency>
             <groupId>org.secretflow</groupId>
+            <artifactId>dataproxy-plugin-kingbase</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.secretflow</groupId>
             <artifactId>dataproxy-plugin-dameng</artifactId>
         </dependency>
 
